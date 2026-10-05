@@ -11,7 +11,9 @@ Import the module into your own host configuration and it will:
 - enable SPICE USB redirection and the SPICE guest-agent daemon,
 - enable `dconf` (needed by virt-manager),
 - add a user you choose to the `libvirtd` group so it can manage VMs
-  without root.
+  without root,
+- preseed virt-manager with an auto-connecting `qemu:///system` connection,
+  so you never have to do *File -> Add Connection* by hand.
 
 This flake targets **nixpkgs-unstable**.
 
@@ -61,9 +63,23 @@ rebuild.
 |--------|------|---------|-------------|
 | `vmSetup.enable` | bool | `true` | Enables the whole VM-host setup. Set to `false` to turn it off without removing the import. |
 | `vmSetup.user` | string or `null` | `null` | User to add to the `libvirtd` group. Leave `null` if you manage that group membership yourself. |
+| `vmSetup.autoConnect` | bool | `true` | Preseed virt-manager with an auto-connecting `qemu:///system` connection via a system-wide dconf default. Set `false` to leave virt-manager's connection list untouched. |
 
 Because `vmSetup.enable` defaults to `true`, simply importing the module turns
 everything on; you normally only need to set `vmSetup.user`.
+
+### The preseeded virt-manager connection
+
+With `vmSetup.autoConnect = true` (the default), the module installs a
+system-wide dconf default (in the `user` profile, after `user-db:user`) that
+adds `qemu:///system` to virt-manager's connection list and marks it
+autoconnect. This is a **non-destructive** default: a user's own dconf database
+still takes priority, so they can remove or change the connection and it won't
+be forced back.
+
+Because dconf system defaults are read when a session starts, the connection
+appears for **new login sessions**. If you are already logged in when you first
+rebuild, log out and back in (or reboot) for virt-manager to pick it up.
 
 ## Example configuration
 

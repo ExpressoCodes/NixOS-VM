@@ -4,7 +4,9 @@
 #   * install virt-manager / virt-viewer / SPICE tooling,
 #   * enable libvirtd (with swtpm + UEFI/OVMF) and SPICE USB redirection,
 #   * enable the SPICE guest agent daemon and dconf,
-#   * add a user of your choice to the `libvirtd` group.
+#   * add a user of your choice to the `libvirtd` group,
+#   * preseed virt-manager with an auto-connecting `qemu:///system`
+#     connection (so no manual File -> Add Connection is needed).
 #
 # Configure it from your own configuration with:
 #   vmSetup.user = "alice";   # the account that should manage VMs
@@ -33,11 +35,41 @@ in
         user to `libvirtd` yourself elsewhere).
       '';
     };
+
+    autoConnect = lib.mkOption {
+      type = lib.types.bool;
+      default = true;
+      description = ''
+        Preseed virt-manager with an auto-connecting `qemu:///system`
+        connection via a system-wide dconf default, so users do not have to
+        add it manually (File -> Add Connection). This is installed as a
+        non-destructive default (the per-user dconf database still takes
+        priority), so users can still remove or change the connection.
+        Set to `false` to leave virt-manager's connection list untouched.
+      '';
+    };
   };
 
   config = lib.mkIf cfg.enable {
     # Enable dconf (needed by virt-manager to store settings).
     programs.dconf.enable = true;
+
+    # Preseed virt-manager's connection list with qemu:///system and mark it
+    # autoconnect, system-wide. virt-manager stores connections under this
+    # dconf path; `uris`/`autoconnect` are arrays of strings (GVariant `as`).
+    #
+    # This goes into the default "user" dconf profile. Because that profile has
+    # `enableUserDb = true` by default, `user-db:user` is searched first and
+    # this file-db only provides a fallback default -- it does not clobber a
+    # user's own virt-manager settings, and the user can still override it.
+    programs.dconf.profiles.user.databases = lib.mkIf cfg.autoConnect [
+      {
+        settings."org/virt-manager/virt-manager/connections" = {
+          uris = [ "qemu:///system" ];
+          autoconnect = [ "qemu:///system" ];
+        };
+      }
+    ];
 
     # Add the chosen user to the libvirtd group (if one was specified).
     users.users = lib.mkIf (cfg.user != null) {
