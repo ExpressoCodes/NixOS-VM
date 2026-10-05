@@ -9,7 +9,8 @@
     {
       # PRIMARY OUTPUT: import this into your own host's module list.
       #   modules = [ inputs.nixos-vm.nixosModules.default ];
-      # then set `vmSetup.user = "<you>";` in your configuration.
+      # Normal users are added to `libvirtd` automatically; override with
+      # `vmSetup.users = [ ... ];` (or `[ ]` to opt out).
       nixosModules.default = import ./vm.nix;
 
       # Optional, self-contained example that CONSUMES the module above.

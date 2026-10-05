@@ -4,18 +4,39 @@
 #   * install virt-manager / virt-viewer / SPICE tooling,
 #   * enable libvirtd (with swtpm + UEFI/OVMF) and SPICE USB redirection,
 #   * enable the SPICE guest agent daemon and dconf,
-#   * add a user of your choice to the `libvirtd` group,
+#   * add the host's human users to the `libvirtd` group (auto-detected),
 #   * preseed virt-manager with an auto-connecting `qemu:///system`
 #     connection (so no manual File -> Add Connection is needed).
 #
-# Configure it from your own configuration with:
-#   vmSetup.user = "alice";   # the account that should manage VMs
-# (set `vmSetup.enable = false;` to turn everything off without un-importing).
+# By default every account with `isNormalUser = true` is added to `libvirtd`,
+# so merely importing the module is enough. Override or opt out with:
+#   vmSetup.users = [ "alice" ];   # only these accounts manage VMs
+#   vmSetup.users = [ ];           # manage `libvirtd` membership yourself
+# (the legacy `vmSetup.user = "alice";` still works and is added on top).
+# Set `vmSetup.enable = false;` to turn everything off without un-importing.
+#
+# SECURITY: membership in `libvirtd` is effectively root-equivalent (members
+# can define VMs with arbitrary host disks / devices attached).
+# Group changes only apply to new login sessions: log out and back in (or
+# reboot) after the rebuild.
 
 { config, lib, pkgs, ... }:
 
 let
   cfg = config.vmSetup;
+
+  # Every "human" account on the host. This only *reads* config.users.users;
+  # the result is written to users.groups.libvirtd.members (never back into
+  # users.users), which is what avoids infinite recursion.
+  normalUsers = lib.attrNames (lib.filterAttrs (_: u: u.isNormalUser) config.users.users);
+
+  # Final libvirtd member list: `users` plus the legacy single `user`.
+  libvirtdMembers = lib.unique (cfg.users ++ lib.optional (cfg.user != null) cfg.user);
+
+  # Everyone who will actually be in libvirtd, however they got there (used
+  # only for the warning below). NixOS already folds users whose
+  # extraGroups contain "libvirtd" into this list.
+  effectiveMembers = config.users.groups.libvirtd.members;
 in
 {
   options.vmSetup = {
@@ -25,14 +46,29 @@ in
       default = true;
     };
 
+    users = lib.mkOption {
+      type = lib.types.listOf lib.types.str;
+      default = normalUsers;
+      defaultText = lib.literalExpression
+        "lib.attrNames (lib.filterAttrs (_: u: u.isNormalUser) config.users.users)";
+      example = [ "alice" ];
+      description = ''
+        Usernames to add to the `libvirtd` group so they can manage VMs
+        without root. Defaults to every account with `isNormalUser = true`.
+        Set to `[ ]` to opt out (e.g. if you manage `libvirtd` membership
+        yourself elsewhere). Note that `libvirtd` membership is effectively
+        root-equivalent.
+      '';
+    };
+
     user = lib.mkOption {
       type = lib.types.nullOr lib.types.str;
       default = null;
       example = "alice";
       description = ''
-        Username to add to the `libvirtd` group so it can manage VMs without
-        root. Leave as `null` to skip group management (e.g. if you add the
-        user to `libvirtd` yourself elsewhere).
+        Legacy single-user form, kept for backward compatibility. If set, this
+        username is added to the `libvirtd` group in addition to
+        `vmSetup.users`. Prefer `vmSetup.users`.
       '';
     };
 
@@ -71,10 +107,24 @@ in
       }
     ];
 
-    # Add the chosen user to the libvirtd group (if one was specified).
-    users.users = lib.mkIf (cfg.user != null) {
-      ${cfg.user}.extraGroups = [ "libvirtd" ];
-    };
+    # Add the selected users to the libvirtd group. This is set on the group
+    # (not via users.users.<name>.extraGroups) because the default list is
+    # computed from config.users.users -- writing back into users.users would
+    # cause infinite recursion.
+    users.groups.libvirtd.members = libvirtdMembers;
+
+    # virt-manager auto-connects to qemu:///system, which hits a polkit denial
+    # for anyone not in libvirtd. Warn if nobody would end up in the group
+    # (checked on the final group membership, so opting out and adding users
+    # via extraGroups yourself does not warn).
+    warnings = lib.optional (cfg.autoConnect && effectiveMembers == [ ]) ''
+      vmSetup: autoConnect is enabled but no users are added to the `libvirtd`
+      group (vmSetup.users is empty and vmSetup.user is null). virt-manager
+      will show a polkit prompt ("System policy prevents management of local
+      virtualized systems") when connecting to qemu:///system. Set
+      vmSetup.users, add users to `libvirtd` yourself, or set
+      vmSetup.autoConnect = false.
+    '';
 
     # Install necessary packages.
     environment.systemPackages = with pkgs; [

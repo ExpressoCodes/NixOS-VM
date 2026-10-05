@@ -25,15 +25,15 @@
   time.timeZone = "Etc/UTC";
 
   # CHANGE ME: your user account.
+  # Because it is a normal user, the VM module auto-detects it and adds it to
+  # the `libvirtd` group -- no `vmSetup.*` setting is needed. To restrict or
+  # opt out, set e.g. `vmSetup.users = [ "alice" ];` or `vmSetup.users = [ ];`.
   users.users.alice = {
     isNormalUser = true;
     description = "Example user";
     extraGroups = [ "wheel" "networkmanager" ];
     # Set a password with `passwd` after first boot, or use hashedPassword here.
   };
-
-  # --- This is the whole point: hand the module the user to manage VMs. ---
-  vmSetup.user = "alice";
 
   # The NixOS release this config was first written for. Keep it fixed; do not
   # bump it when you upgrade. 26.05 is the current latest release (Oct 2026).

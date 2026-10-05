@@ -10,8 +10,8 @@ Import the module into your own host configuration and it will:
 - enable `libvirtd` with `swtpm` (TPM) and UEFI/OVMF (`OVMFFull`),
 - enable SPICE USB redirection and the SPICE guest-agent daemon,
 - enable `dconf` (needed by virt-manager),
-- add a user you choose to the `libvirtd` group so it can manage VMs
-  without root,
+- add the host's human users (every `isNormalUser = true` account) to the
+  `libvirtd` group so they can manage VMs without root,
 - preseed virt-manager with an auto-connecting `qemu:///system` connection,
   so you never have to do *File -> Add Connection* by hand.
 
@@ -37,11 +37,9 @@ Add this flake to your inputs and drop the module into your host's module list:
         ./configuration.nix
         ./hardware-configuration.nix
 
-        # The VM-host module:
+        # The VM-host module (normal users are added to libvirtd
+        # automatically; see "Who can manage VMs" below):
         nixos-vm.nixosModules.default
-
-        # Tell it which user should be able to manage VMs:
-        { vmSetup.user = "alice"; }
       ];
     };
   };
@@ -54,19 +52,51 @@ Then rebuild:
 sudo nixos-rebuild switch --flake .#myhost
 ```
 
-That's the whole workflow: add the input, add the module, set `vmSetup.user`,
-rebuild.
+That's the whole workflow: add the input, add the module, rebuild. Then **log
+out and back in** (or reboot) so your session picks up the new `libvirtd` group
+membership.
 
 ## Module options
 
 | Option | Type | Default | Description |
 |--------|------|---------|-------------|
 | `vmSetup.enable` | bool | `true` | Enables the whole VM-host setup. Set to `false` to turn it off without removing the import. |
-| `vmSetup.user` | string or `null` | `null` | User to add to the `libvirtd` group. Leave `null` if you manage that group membership yourself. |
+| `vmSetup.users` | list of strings | all `isNormalUser` accounts | Users to add to the `libvirtd` group. Set `[ ]` to opt out. |
+| `vmSetup.user` | string or `null` | `null` | Legacy single-user form, kept for backward compatibility. If set, it is added on top of `vmSetup.users`. Prefer `vmSetup.users`. |
 | `vmSetup.autoConnect` | bool | `true` | Preseed virt-manager with an auto-connecting `qemu:///system` connection via a system-wide dconf default. Set `false` to leave virt-manager's connection list untouched. |
 
-Because `vmSetup.enable` defaults to `true`, simply importing the module turns
-everything on; you normally only need to set `vmSetup.user`.
+Because `vmSetup.enable` defaults to `true` and `vmSetup.users` auto-detects
+your human accounts, simply importing the module turns everything on; you
+normally don't need to set anything.
+
+### Who can manage VMs (`libvirtd` group)
+
+By default, every account with `isNormalUser = true` in `users.users` is added
+to the `libvirtd` group (via `users.groups.libvirtd.members`). System accounts
+are not included. To control this explicitly:
+
+```nix
+# Only these accounts may manage VMs:
+vmSetup.users = [ "alice" ];
+
+# Opt out entirely (e.g. you add users to libvirtd yourself elsewhere):
+vmSetup.users = [ ];
+```
+
+Existing configs that set `vmSetup.user = "alice";` keep working; that user is
+added in addition to `vmSetup.users`.
+
+If `vmSetup.autoConnect` is on but nobody ends up in `libvirtd`, the module
+emits an evaluation warning, because virt-manager would otherwise hit a polkit
+prompt ("System policy prevents management of local virtualized systems").
+
+> **Security note:** membership in `libvirtd` is effectively
+> **root-equivalent**: a member can define VMs that attach arbitrary host
+> disks or devices. Only put accounts you would trust with root in this group,
+> and use `vmSetup.users` to narrow the list if the host has untrusted users.
+
+Group membership is only picked up by **new login sessions**: after the
+rebuild, log out and back in (or reboot) before using virt-manager.
 
 ### The preseeded virt-manager connection
 
