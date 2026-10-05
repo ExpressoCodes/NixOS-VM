@@ -23,5 +23,13 @@
           ./example/hardware-configuration.nix
         ];
       };
+
+      # Force the example system's toplevel derivation so that `nix flake check`
+      # actually instantiates environment.systemPackages. The bare
+      # nixosConfigurations check only forces the toplevel value to a
+      # derivation (its `type`), not its `drvPath`, so a throwing package alias
+      # (e.g. a renamed pkg) would otherwise slip through unnoticed.
+      checks.x86_64-linux.example =
+        self.nixosConfigurations.example.config.system.build.toplevel;
     };
 }
